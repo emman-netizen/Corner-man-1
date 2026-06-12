@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0E1116">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Corner — 1068-Day Session Timer</title>
+<style>
+:root{
+  --bg:#0E1116; --surface:#161B23; --line:#262D38;
+  --ink:#F2EFE7; --muted:#9AA0AB; --faint:#6B7280;
+  --gold:#E8B23A; --gold-dim:#8A6A22;
+  --blue:#5B8DD9; --blue-dim:#2E4E80;
+  --ember:#D85A3A;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent; margin:0; padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  display:flex; flex-direction:column;
+  padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+  max-width:520px; margin:0 auto;
+  transition:background .6s ease;
+  overscroll-behavior:none;
+}
+body.mode-work{background:#15120A}
+body.mode-rest{background:#0C1320}
+body.mode-done{background:#0F1810}
+header{padding:14px 0 8px}
+.brand{font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--faint); margin-bottom:12px}
+.row{display:flex; gap:6px; flex-wrap:wrap}
+.pill{
+  flex:1; min-width:0; padding:10px 0; text-align:center;
+  border:1px solid var(--line); border-radius:10px; background:transparent;
+  color:var(--muted); font-size:13px; cursor:pointer; font-family:inherit;
+}
+.pill.on{border-color:var(--gold); color:var(--ink); background:rgba(232,178,58,.08)}
+.pill:focus-visible{outline:2px solid var(--gold); outline-offset:2px}
+#dayrow{margin-top:6px}
+#dayrow .pill{padding:9px 0; font-size:12.5px; position:relative}
+#dayrow .pill .tick{position:absolute; bottom:3px; left:50%; transform:translateX(-50%); width:4px; height:4px; border-radius:50%; background:var(--gold)}
+#sessrow{margin-top:6px}
+main{flex:1; display:flex; flex-direction:column; justify-content:center; text-align:center; padding:8px 0; min-height:0}
+.eyebrow{font-size:12px; letter-spacing:.24em; text-transform:uppercase; color:var(--gold); margin-bottom:10px}
+.eyebrow.rest{color:var(--blue)}
+.eyebrow.info{color:var(--muted)}
+.stepname{font-size:clamp(19px,5.6vw,26px); font-weight:600; line-height:1.25; margin-bottom:8px}
+.detail{font-size:14px; color:var(--muted); line-height:1.55; min-height:44px; max-width:42ch; margin:0 auto}
+.clock{
+  font-size:clamp(72px,26vw,132px); font-weight:700; font-variant-numeric:tabular-nums;
+  letter-spacing:-.02em; line-height:1; margin:14px 0 6px;
+}
+.clock.final{color:var(--gold)}
+body.mode-rest .clock.final{color:var(--blue)}
+.left{font-size:13px; color:var(--faint); font-variant-numeric:tabular-nums}
+.bar{height:4px; background:var(--surface); border-radius:2px; overflow:hidden; margin:16px auto 0; width:100%; max-width:340px}
+.fill{height:100%; width:0%; background:var(--gold); border-radius:2px; transition:width .4s linear}
+.next{font-size:13px; color:var(--muted); margin-top:14px; font-variant-numeric:tabular-nums}
+footer{padding:10px 0 18px}
+.controls{display:flex; gap:10px; justify-content:center; align-items:center}
+.cbtn{
+  height:58px; min-width:58px; padding:0 14px; border-radius:14px;
+  border:1px solid var(--line); background:var(--surface); color:var(--ink);
+  font-size:15px; font-weight:600; cursor:pointer; font-family:inherit;
+  font-variant-numeric:tabular-nums;
+}
+.cbtn:active{transform:scale(.97)}
+.cbtn:focus-visible{outline:2px solid var(--gold); outline-offset:2px}
+.cbtn.primary{min-width:96px; font-size:22px; border-color:var(--gold-dim)}
+.startbtn{
+  width:100%; padding:18px; border-radius:14px; border:1px solid var(--gold-dim);
+  background:rgba(232,178,58,.1); color:var(--ink); font-size:17px; font-weight:600;
+  cursor:pointer; font-family:inherit; margin-top:18px;
+}
+.startbtn:active{transform:scale(.99)}
+.ov{font-size:14px; color:var(--muted); line-height:1.7}
+.banked{font-size:12px; color:var(--faint); margin-top:14px}
+.soundrow{display:flex; justify-content:center; margin-top:10px}
+.soundtoggle{font-size:12px; color:var(--faint); background:none; border:none; cursor:pointer; font-family:inherit; letter-spacing:.06em; padding:8px}
+@media (prefers-reduced-motion: reduce){ body{transition:none} .fill{transition:none} }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Corner · the 1068-day system</div>
+  <div class="row" id="phaserow"></div>
+  <div class="row" id="dayrow"></div>
+  <div class="row" id="sessrow"></div>
+</header>
+<main id="stage" aria-live="polite"></main>
+<footer id="foot"></footer>
+
+<script>
+"use strict";
+/* ---------- step builders ---------- */
+const W=(t,d,s)=>({t,d,s,k:'work'});
+const R=(s,d)=>({t:'Rest',d:d||'Breathe. Water if you need it.',s,k:'rest'});
+const I=(t,d,s)=>({t,d,s,k:'info'});
+function rounds(n,ws,rs,label,detail){const a=[];for(let i=1;i<=n;i++){a.push({t:label,d:detail,s:ws,k:'work',rd:i+' / '+n});if(i<n)a.push(R(rs));}a.push(R(rs,'Block done. Shake out the arms.'));return a;}
+function sets(n,ws,rs,label,detail){const a=[];for(let i=1;i<=n;i++){a.push({t:label,d:detail,s:ws,k:'work',rd:'set '+i+' / '+n});if(i<n)a.push(R(rs));}return a;}
+
+/* ---------- shared blocks ---------- */
+const WARMUP=[
+ W('Warm-up: neck','10 slow circles each way, 10 yes-nods, 10 no-shakes.',60),
+ W('Warm-up: shoulders','15 forward circles small to large, 15 back, 10 rolls each way.',60),
+ W('Warm-up: hips + torso','10 big hip circles each way, 20 relaxed torso twists.',60),
+ W('Warm-up: leg swings','Hold a wall. 15 front-back each leg, 15 side-side each leg.',60),
+ W('Skip 1 of 5: two-foot bounce','Trips do not matter — resume instantly.',60),
+ W('Skip 2 of 5: boxer skip','Weight shifting foot to foot.',60),
+ W('Skip 3 of 5: single foot','Alternate, 10 hops each.',60),
+ W('Skip 4 of 5: intervals','15 seconds fast, 15 slow, repeat.',60),
+ W('Skip 5 of 5: freestyle','Side swings, crossovers if able.',60),
+ W('Dynamic lower body','10 walking lunges with twist, 10 lateral lunges each side, 10 deep squats.',120),
+ W('Dynamic upper body','10 push-up-plus, 10 wall slides, 10 pull-aparts.',60),
+ W('Systems-check shadow round','50% speed, 100% technique. Jabs and crosses, full extension, keep moving.',180)
+];
+const COOL=[
+ W('Cool-down: light shadow or walk','Slow the breathing through the nose.',120),
+ W('Stretch: hamstring fold','Exhale into it.',40),
+ W('Stretch: hip flexor — left','Deep runner\u2019s lunge.',40),
+ W('Stretch: hip flexor — right','',40),
+ W('Stretch: figure-4 glute — left','',40),
+ W('Stretch: figure-4 glute — right','',40),
+ W('Stretch: quad — left','',40),
+ W('Stretch: quad — right','',40),
+ W('Stretch: chest in a doorway','',40),
+ W('Stretch: shoulder — left','Cross-body.',40),
+ W('Stretch: shoulder — right','',40),
+ W('Stretch: triceps — left','Overhead.',40),
+ W('Stretch: triceps — right','',40),
+ W('Stretch: child\u2019s pose','Walk the arms to each side.',60),
+ W('Stretch: neck side-bends','Each way, gently.',40),
+ I('Breathing + logbook','Lie down. 6 breaths: 4 in, 6 out. Then the 3 lines: what worked, what got sloppy, one adjustment.',90)
+];
+function coreA(){const a=[];for(let r=1;r<=3;r++){a.push(
+ W('Core A: plank','Ear to ankle straight, glutes squeezed. Round '+r+' of 3.',60),R(30),
+ W('Core A: dead bugs','10 per side, lower back glued down.',60),R(30),
+ W('Core A: side plank — left','Hips high.',30),
+ W('Core A: side plank — right','',30),R(30),
+ W('Core A: hollow hold','Lower back pressed down.',30),R(30),
+ W('Core A: bird-dogs','8 per side, 2-second pause.',60),
+ R(r<3?90:45,r<3?'Big rest between rounds.':'Core done.'));}return a;}
+function coreB(){const a=[];for(let r=1;r<=3;r++){a.push(
+ W('Core B: Russian twists','20 total — rotate the shoulders. Round '+r+' of 3.',45),R(30),
+ W('Core B: rotational throws','8 per side. Pivot like a cross.',60),R(30),
+ W('Core B: mountain climbers','Fast, hips low.',30),R(30),
+ W('Core B: bicycle crunches','20 slow, elbow to opposite knee.',45),R(30),
+ W('Core B: superman hold','Squeeze the whole back side.',30),
+ R(r<3?90:45,r<3?'Big rest between rounds.':'Core done.'));}return a;}
+function cals(){return [
+ ...sets(4,40,80,'Push-ups','Your level. Body rigid, chest near the floor.'),
+ ...sets(4,30,90,'Pull-ups','Dead hang, chin over the bar, no kipping.'),
+ ...sets(3,30,75,'Dips','Shoulders down away from the ears.'),
+ ...sets(3,40,75,'Bodyweight rows','Squeeze the blades, 1-second pause.'),
+ ...sets(3,70,60,'Split squats','Both legs inside the set. Torso tall.')
+];}
+const REFLEX=[
+ W('Reflex ball','Alternating straights, light fists, eyes locked on. Chase your rally record.',480),
+ ...rounds(3,120,45,'Slip bag','Slip by centimeters, chin tucked, eyes ON the ball.'),
+ W('Wall ball','60 catches alternating hands, then 30 with a slip first.',300),
+ W('Drop catch','10 each hand below the knee; then surprise drops.',120)
+];
+const NECK=[
+ W('Neck: isometric front','Palm on forehead, resist, 3 holds of 10 seconds.',90),
+ W('Neck: isometric back + sides','3 holds of 10 seconds each direction.',150),
+ W('Neck: band look-aways','2 sets of 10 each side, slow.',120),
+ W('Neck: lying raises','2 sets of 15 on the back, 2 of 15 face down.',180)
+];
+const EYE=[
+ W('Eyes: near-far snaps','Thumb 20 cm, target 5 m. Snap focus, both must come sharp.',180),
+ W('Eyes: Brock string','See the X meet at each bead. 5-second holds, cycle.',180),
+ W('Eyes: Hart chart','One letter far, one near, aloud, fast.',180),
+ W('Eyes: peripheral calls','Eyes on the dot. Call the fingers at the edge.',180),
+ W('Eyes: smooth tracking','Figure-eights with the eyes only, then track the slip bag.',180)
+];
+const MOBI=[
+ W('Mobility: easy skip or jog','Warm the tissue.',300),
+ W('Hips: 90/90 switches','10 slow.',120),
+ W('Hips: pigeon — left','Breathe into it.',90),W('Hips: pigeon — right','',90),
+ W('Hips: deep squat hold','2 of 60 seconds, elbows pry the knees out.',130),
+ W('Hips: cossack squats','8 per side.',90),
+ W('Hips: frog stretch','Rock gently.',90),
+ W('Hamstrings: elephant walks','20 reps.',90),
+ W('Hamstrings: single-leg RDL reach','8 per side.',90),
+ W('Calves: wall stretch','60 seconds per side, straight then bent knee.',240),
+ W('T-spine: open books','10 per side, 2-second holds.',120),
+ W('T-spine: thread the needle','8 per side.',120),
+ W('T-spine: cat-cow + extensions','12 cat-cow, 10 extensions over a towel.',120),
+ W('Shoulders: wall slides + dislocates','12 each, never into pain.',120),
+ W('Shoulders: dead hang','2 of 30 seconds.',75),
+ W('Wrists: circles + stretches','45 seconds each position.',120)
+];
+const wrap=I('Wrap hands','Wrist three times, knuckles three, the X three, weave the fingers, finish at the wrist.',180);
+function runEasy(km,min){return [I('Easy run '+km+' km','Conversational pace. The timer is a guide of '+min+':00 — finish the distance.',min*60)];}
+function run400(n){const a=[I('Intervals: warm-up jog','10 minutes easy plus 4 build-up strides.',600)];for(let i=1;i<=n;i++){a.push({t:'400 m hard',d:'8 of 10 effort. Every rep within 3 seconds of the first.',s:100,k:'work',rd:i+' / '+n});if(i<n)a.push(R(90,'Walk or jog it off.'));}a.push(I('Cool-down jog','5 minutes easy.',300));return a;}
+function run800(n){const a=[I('Intervals: warm-up jog','10 minutes easy plus 4 build-up strides.',600)];for(let i=1;i<=n;i++){a.push({t:'800 m steady-hard',d:'7 of 10 effort, held evenly.',s:200,k:'work',rd:i+' / '+n});if(i<n)a.push(R(120,'Jog it off.'));}a.push(I('Cool-down jog','5 minutes easy.',300));return a;}
+function hills(n){const a=[I('Hills: warm-up jog','10 minutes easy to the hill.',600)];for(let i=1;i<=n;i++){a.push({t:'Hill rep',d:'Short fast boxing-stance steps, pumping arms.',s:40,k:'work',rd:i+' / '+n});if(i<n)a.push(R(100,'Walk down.'));}a.push(I('Cool-down jog','5 minutes easy.',300));return a;}
+function sprints(n){const a=[I('Sprints: warm-up','10 minutes easy jog, then 4 build-up strides. Never sprint cold.',780)];for(let i=1;i<=n;i++){a.push({t:'Sprint 100 m',d:'95% effort, tall and relaxed.',s:16,k:'work',rd:i+' / '+n});if(i<n)a.push(R(105,'Walk back. Fully fresh before the next.'));}a.push(I('Cool-down jog','5 minutes easy.',300));return a;}
+
+/* ---------- phase data ---------- */
+const DATA={
+"1":{
+ Mon:{Morning:runEasy(5,25),Main:[...WARMUP,
+  W('Jab technique: slow motion','Mirror. Straight line out, palm turns, shoulder covers the chin, faster back than out.',600),
+  W('Jab technique: half speed + step-jab','Lead foot slides 15 cm as it lands, rear foot follows.',600),
+  R(120,'Water.'),wrap,
+  ...rounds(4,180,60,'Jab-only heavy bag','Your full range. Singles, doubles, triples. Two steps after every sequence. 60% power, 100% precision.'),
+  R(120,'Gloves off, water.'),...REFLEX,...coreA(),...COOL]},
+ Tue:{Morning:[...EYE],Main:[...WARMUP,
+  ...rounds(4,180,60,'Circle drill','Move the taped circle\u2019s edge throwing jabs. Never still more than one second.'),
+  W('Step-drag: slow perfect reps','20 each direction. Feet never cross, never touch.',300),
+  W('Step-drag: at speed','20 each direction, crisp.',300),
+  R(120,'Water.'),
+  ...rounds(3,180,60,'Rhythm shadowboxing','Round 1 slow track on the beat. Round 2 fast track. Round 3 break the beat every 30 seconds.'),
+  ...cals(),...COOL]},
+ Wed:{Morning:run400(8),Main:[...WARMUP,
+  W('Cross technique: slow motion','Heel lifts, hips rotate, chin behind the lead shoulder.',300),
+  W('Jab-cross at half speed','Power travels floor, hip, shoulder, fist.',600),
+  wrap,
+  ...rounds(4,180,60,'Heavy bag: sequences 1–2','Jab-jab-cross, then body-body-head-cross. Step off at an angle after each.'),
+  R(120,'Water.'),
+  ...rounds(3,120,45,'Slip bag','Slip-slip-duck patterns this block.'),
+  ...NECK,...coreB(),...COOL]},
+ Thu:{Main:[...MOBI,
+  ...rounds(3,180,60,'Light rhythm shadow','50% effort. Flow, do not fight.'),
+  ...EYE,
+  I('Film study: Ali vs Cleveland Williams 1966','Pen and logbook. Pause and ask: why did he move left? What did he see first?',2700)]},
+ Fri:{Morning:hills(8),Main:[...WARMUP,
+  W('Mitt work or mirror technique','Jab and jab-cross only this phase. Three-quarter speed.',1200),
+  R(120,'Water.'),
+  ...rounds(3,180,60,'The range line','Glide in, full-extension jab touches the wall, glide out — inside one second.'),
+  ...rounds(3,180,60,'Hanging-ball range game','Knuckles graze the ball at full extension. Too close jams, too far misses.'),
+  R(120,'Water.'),...REFLEX,...cals(),...COOL]},
+ Sat:{Main:[...WARMUP,
+  W('Gauntlet: reflex ball','10 straight minutes. Chase the rally record.',600),R(120),
+  ...rounds(4,180,60,'Gauntlet: double-end stage 1','Jab, let it return fully, jab the instant it is back in range.'),
+  R(120),
+  ...rounds(3,120,45,'Gauntlet: slip bag','Round 1 slips, round 2 slip-slip-duck, round 3 add a pivot.'),
+  R(120),
+  ...rounds(4,180,60,'Gauntlet: archetype shadow','Two rounds vs a pressure fighter, two vs a tall jabber. SEE their punch first.'),
+  R(180,'Big rest. Water.'),
+  I('Gauntlet: video occlusion','Pause BEFORE the punch launches. Call it aloud. Score out of 10. 0.75 speed allowed.',1200),
+  ...EYE,...COOL]},
+ Sun:{Main:[I('Complete rest day','No training. Cook the week\u2019s shiro and misir, boil a dozen eggs, check the injera. Read the week\u2019s logbook — ten minutes, honestly.',600)]}
+},
+"2":{
+ Mon:{Morning:runEasy(6,29),Main:[...WARMUP,
+  W('Hook technique: slow motion','Elbow to shoulder height, arm locked near 90 degrees, the legs turn the punch.',600),
+  W('Uppercut technique: half speed','Drop 10 cm with the knees, drive up through the chin line.',600),
+  wrap,
+  ...rounds(6,180,60,'Heavy bag: sequences 1–3','One sequence per minute. The slow-slow-slip-FAST tempo switch lives here.'),
+  R(180,'Water.'),...REFLEX,...coreA(),...COOL]},
+ Tue:{Morning:[...run400(10),...EYE],Main:[...WARMUP,
+  ...rounds(4,180,60,'Double-end: stage 2','Doubles and triples on consecutive rebounds, hands home between each.'),
+  R(120,'Water.'),
+  ...rounds(3,180,60,'Call-out shadowboxing','Helper or app calls ONE, TWO, THREE, SLIP, ROLL, OUT every few seconds. React instantly.'),
+  ...rounds(3,240,30,'Defense to calls','CATCH, PARRY, or SLIP on each call — answer every one with the jab.'),
+  ...NECK,...COOL]},
+ Wed:{Main:[...WARMUP,
+  W('Mitt work or technique block','30 minutes on the newest punches — mirror plus bag if no mitts.',1800),
+  ...rounds(4,180,60,'Heavy bag: body rounds','Level changes from the knees, never the waist. Return behind the jab.'),
+  R(120,'Water.'),
+  ...rounds(4,180,60,'Range work','Alternate rounds: the range line, then the hanging ball.'),
+  ...cals(),...COOL]},
+ Thu:{Morning:runEasy(5,25),Main:[...MOBI,
+  ...rounds(3,180,60,'Rhythm shadowboxing','Keep, then break, the beat at will.'),
+  ...EYE,
+  I('Video occlusion','Normal speed now. Pause before the launch, call it, score out of 10.',1200),
+  I('Film study','30 minutes, pen in hand. Ali syllabus or your own training film.',1800)]},
+ Fri:{Morning:sprints(10),Main:[...WARMUP,
+  ...rounds(5,180,60,'Sequence drilling','One Ali sequence per round, in order, full attention on the gear-change in sequence 3.'),
+  ...rounds(3,120,45,'Slip bag','Eyes on the ball, feet planted.'),
+  W('Composure round','One PERFECT 3-minute shadow round while still tired. Technique under exhaustion.',180),
+  ...coreB(),...COOL]},
+ Sat:{Main:[...WARMUP,
+  W('Gauntlet: reflex ball','10 minutes. Fast ball if you have earned it.',600),R(120),
+  ...rounds(4,180,60,'Gauntlet: double-end stage 2–3','Triples, then the cross meeting the bag mid-return.'),
+  R(120),
+  ...rounds(3,120,45,'Gauntlet: slip bag','Full patterns.'),
+  R(120),
+  ...rounds(4,180,60,'Gauntlet: archetype shadow','Two archetypes, two rounds each. See their punch first.'),
+  R(180,'Big rest. Water.'),
+  I('Gauntlet: video occlusion','Normal speed. Call it before it launches. Score out of 10.',1200),
+  ...EYE,...COOL]},
+ Sun:{Main:[I('Complete rest day','Food preparation and the week\u2019s logbook. Nothing else.',600)]}
+},
+"3":{
+ Mon:{Morning:runEasy(7,34),Main:[...WARMUP,
+  ...rounds(5,180,60,'Double-end: counter chains','Stage 4. Push, slip the return past the ear, counter as it swings away.'),
+  R(180,'Water.'),
+  ...rounds(4,180,60,'Combination rounds + feints','Minimum 30 feints woven into every round. Read the reaction your feint buys.'),
+  ...REFLEX,...coreA(),...COOL]},
+ Tue:{Morning:[...EYE,...run800(6)],Main:[...WARMUP,
+  ...rounds(2,180,60,'Mirror entries','In behind the jab, out on a pivot. Never inside longer than one beat.'),
+  W('Bag work on weak punches','20 minutes on whatever the logbook says is lagging. Mitts here if approved.',1200),
+  ...rounds(3,180,60,'Call-outs with counters','JAB COMING means slip right and cross. CROSS COMING means slip left and hook the body.'),
+  ...NECK,...COOL]},
+ Wed:{Main:[...WARMUP,
+  ...sets(4,40,120,'Trap-bar deadlift','5 reps, moderate weight, perfect form. Coach-supervised.'),
+  ...sets(4,30,120,'Weighted pull-ups','5 strict reps.'),
+  ...sets(3,40,90,'Landmine press','8 per side.'),
+  ...sets(4,30,90,'Medicine-ball throws','6 per side, explosive, full rest.'),
+  ...rounds(4,180,60,'Ring generalship circle','Two rounds cutting the escape, two rounds escaping the cutter.'),
+  ...COOL]},
+ Thu:{Morning:runEasy(5,25),Main:[...MOBI,
+  ...rounds(4,180,60,'Archetype shadow: counter focus','Wait for THEIR punch. Answer it. One archetype per round.'),
+  I('Video occlusion: graduation','Call the punch AND perform the slip or counter in shadow before unpausing.',1200),
+  I('Film study: archetypes','Scout the pressure fighter, the counter-puncher, the southpaw.',1800)]},
+ Fri:{Morning:sprints(12),Main:[...WARMUP,
+  ...rounds(6,180,60,'Tempo block','Alternate rounds: broken-rhythm double-end, then sequence 3 on the heavy bag. Lie with your cadence.'),
+  ...rounds(3,60,60,'Wall pressure','Back to the wall, absorb and roll for 60 seconds, then explode off into a 4-punch burst.'),
+  ...coreB(),...COOL]},
+ Sat:{Main:[...WARMUP,
+  W('Gauntlet: reflex ball','10 minutes, fast ball.',600),R(120),
+  ...rounds(4,180,60,'Gauntlet: double-end stage 4','Slip-counter chains. The bag should not touch you.'),
+  R(120),
+  ...rounds(3,120,45,'Gauntlet: slip bag','Back 30 cm from the wall for pressure.'),
+  R(120),
+  ...rounds(4,180,60,'Gauntlet: archetype shadow','Three archetypes across four rounds.'),
+  R(180,'Big rest. Water.'),
+  I('Gauntlet: occlusion graduation','Call it AND move. Score out of 10.',1200),
+  ...EYE,...COOL]},
+ Sun:{Main:[I('Complete rest day','Food preparation and the week\u2019s logbook. Nothing else.',600)]}
+}
+};
+
+/* ---------- state ---------- */
+const $=id=>document.getElementById(id);
+const DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+let phase=localStorage.getItem('cn_phase')||"1";
+let day=localStorage.getItem('cn_day')||DAYS[(new Date().getDay()+6)%7];
+let sess='Main', steps=[], idx=0, remain=0, running=false, started=false, timer=null, total=0;
+let sound=localStorage.getItem('cn_sound')!=='off';
+let banked=parseInt(localStorage.getItem('cn_banked')||'0',10);
+let wakeLock=null;
+
+function fmt(s){s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+let AC=null;
+function beep(f,d){if(!sound)return;try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();const o=AC.createOscillator(),g=AC.createGain();o.connect(g);g.connect(AC.destination);o.frequency.value=f;const t=AC.currentTime;g.gain.setValueAtTime(0.18,t);g.gain.exponentialRampToValueAtTime(0.001,t+d);o.start(t);o.stop(t+d);}catch(e){}}
+async function lock(){try{if('wakeLock' in navigator)wakeLock=await navigator.wakeLock.request('screen');}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&started&&running)lock();});
+
+function sumLeft(){let t=remain;for(let i=idx+1;i<steps.length;i++)t+=steps[i].s;return t;}
+
+function renderHeader(){
+ $('phaserow').innerHTML=["1","2","3"].map(ph=>'<button class="pill'+(ph===phase?' on':'')+'" onclick="pickPhase(\''+ph+'\')">Phase '+ph+'</button>').join('');
+ $('dayrow').innerHTML=DAYS.map(d=>'<button class="pill'+(d===day?' on':'')+'" onclick="pickDay(\''+d+'\')">'+d+(localStorage.getItem('cn_done_'+weekKey()+d)?'<span class="tick"></span>':'')+'</button>').join('');
+ const hasM=DATA[phase][day].Morning;
+ $('sessrow').innerHTML=hasM?['Morning','Main'].map(s=>'<button class="pill'+(s===sess?' on':'')+'" onclick="pickSess(\''+s+'\')">'+(s==='Morning'?'Morning':'Main session')+'</button>').join(''):'';
+}
+function weekKey(){const n=new Date();const onejan=new Date(n.getFullYear(),0,1);const wk=Math.ceil((((n-onejan)/86400000)+onejan.getDay()+1)/7);return n.getFullYear()+'w'+wk;}
+window.pickPhase=ph=>{phase=ph;localStorage.setItem('cn_phase',ph);if(!DATA[phase][day][sess])sess='Main';load();};
+window.pickDay=d=>{day=d;localStorage.setItem('cn_day',d);if(!DATA[phase][day][sess])sess='Main';load();};
+window.pickSess=s=>{sess=s;load();};
+window.toggleSound=()=>{sound=!sound;localStorage.setItem('cn_sound',sound?'on':'off');renderFoot();};
+
+function load(){clearInterval(timer);running=false;started=false;document.body.className='';
+ steps=DATA[phase][day][sess]||DATA[phase][day].Main;idx=0;remain=steps[0].s;
+ total=steps.reduce((a,s)=>a+s.s,0);renderHeader();renderStart();renderFoot();}
+
+function renderStart(){
+ $('stage').innerHTML='<div class="eyebrow info">Phase '+phase+' \u00b7 '+day+' \u00b7 '+(sess==='Morning'?'morning':'main session')+'</div>'+
+ '<div class="stepname">'+steps[0].t+'</div>'+
+ '<div class="ov">'+steps.length+' timed steps \u00b7 about '+Math.round(total/60)+' minutes.<br>Volume up: beeps at 3-2-1, a tone when each step ends.</div>'+
+ '<button class="startbtn" onclick="begin()">Start session</button>'+
+ (banked>0?'<div class="banked">'+banked+' session'+(banked===1?'':'s')+' banked so far.</div>':'');
+}
+function renderFoot(){
+ if(!started){$('foot').innerHTML='<div class="soundrow"><button class="soundtoggle" onclick="toggleSound()">Sound: '+(sound?'on':'off')+'</button></div>';return;}
+ $('foot').innerHTML='<div class="controls">'+
+ '<button class="cbtn" onclick="back()" aria-label="Previous step">\u2039</button>'+
+ '<button class="cbtn primary" onclick="toggle()" aria-label="Pause or resume">'+(running?'\u275A\u275A':'\u25B6')+'</button>'+
+ '<button class="cbtn" onclick="plus()" aria-label="Add 20 seconds">+20</button>'+
+ '<button class="cbtn" onclick="skip()" aria-label="Skip step">\u203A</button>'+
+ '</div><div class="soundrow"><button class="soundtoggle" onclick="toggleSound()">Sound: '+(sound?'on':'off')+'</button></div>';
+}
+window.begin=()=>{started=true;running=true;lock();beep(880,0.12);tickUI();renderFoot();timer=setInterval(tick,1000);};
+function tick(){if(!running)return;remain--;
+ if(remain<=3&&remain>0)beep(660,0.1);
+ if(remain<=0){beep(steps[idx].k==='rest'?990:520,0.4);next(false);return;}
+ tickUI();}
+function next(manual){if(idx<steps.length-1){idx++;remain=steps[idx].s;if(manual)beep(880,0.1);tickUI();}else finish();}
+window.skip=()=>next(true);
+window.back=()=>{if(idx>0){idx--;remain=steps[idx].s;tickUI();}};
+window.plus=()=>{remain+=20;tickUI();};
+window.toggle=()=>{if(!started){begin();return;}running=!running;renderFoot();tickUI();};
+function finish(){clearInterval(timer);running=false;document.body.className='mode-done';
+ banked++;localStorage.setItem('cn_banked',String(banked));
+ localStorage.setItem('cn_done_'+weekKey()+day,'1');
+ if(wakeLock){try{wakeLock.release();}catch(e){}}
+ $('stage').innerHTML='<div class="eyebrow">Session complete</div>'+
+ '<div class="stepname">'+day+' done. '+Math.round(total/60)+' minutes banked.</div>'+
+ '<div class="ov">Before you leave — the three lines:<br>what worked \u00b7 what got sloppy \u00b7 one adjustment.</div>'+
+ '<button class="startbtn" onclick="load()">Back to start</button>';
+ $('foot').innerHTML='';renderHeader();}
+function tickUI(){const s=steps[idx];
+ document.body.className=s.k==='work'?'mode-work':s.k==='rest'?'mode-rest':'';
+ const done=steps.slice(0,idx).reduce((a,x)=>a+x.s,0)+(s.s-remain);
+ const pct=Math.min(100,Math.round(done/total*100));
+ const eyeClass=s.k==='rest'?'eyebrow rest':s.k==='info'?'eyebrow info':'eyebrow';
+ const eyeText=(s.k==='work'?'Work':s.k==='rest'?'Rest':'Step')+(s.rd?' \u00b7 round '+s.rd:'')+' \u00b7 '+(idx+1)+' of '+steps.length;
+ $('stage').innerHTML='<div class="'+eyeClass+'">'+eyeText+'</div>'+
+ '<div class="stepname">'+s.t+'</div>'+
+ '<div class="detail">'+(s.d||'')+'</div>'+
+ '<div class="clock'+(remain<=5?' final':'')+'">'+fmt(remain)+'</div>'+
+ '<div class="left">'+fmt(sumLeft())+' left in session</div>'+
+ '<div class="bar"><div class="fill" style="width:'+pct+'%"></div></div>'+
+ (idx<steps.length-1?'<div class="next">Next: '+steps[idx+1].t+' \u00b7 '+fmt(steps[idx+1].s)+'</div>':'<div class="next">Last step.</div>');}
+document.addEventListener('keydown',e=>{if(e.code==='Space'&&started){e.preventDefault();window.toggle();}});
+load();
+
+if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
+</script>
+</body>
+</html>
